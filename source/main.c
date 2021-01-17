@@ -1,8 +1,5 @@
 #include <nds.h>
 #include <dswifi9.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -28,17 +25,23 @@ void SendWirelessData(unsigned short *buffer, int length) {
 void nifiInit(void) {
 	iprintf("\n\n\tNiFi initiating\n\n");
 	
-	// TODO: find out why this hasn't been exported
-	setWirelessMode(WIRELESS_MODE_WIFI);
+	// Changes how packets are handled
+	// this seems to modify the frame much like Wifi_TransmitFunction()
+	Wifi_SetRawPacketMode(PACKET_MODE_NIFI);
 	
+	// Init FIFO without automatic settings
 	Wifi_InitDefault(false);
 	
+	// Allow packet sniffing of all wifi data... surely this is actually the cause for NiFi?
 	Wifi_SetPromiscuousMode(1);
 	
+	// Enable wireless radio antenna
 	Wifi_EnableWifi();
 	
+	// Configure custom packet handler for when 
 	Wifi_RawSetPacketHandler(WirelessHandler);
 	
+	// Force specific channel for communication
 	Wifi_SetChannel(10);
 	
 	iprintf("NiFi initiated\n");
@@ -64,10 +67,17 @@ void gameLoop(void) {
 	
 	// Handle Incoming Packets
 	if (Wifi_ReceivedData) {
+		// This will happen from pretty much anything, my house is pretty noisey
 		iprintf("\n\n\tNiFi received\n\n");
 		if (WIFI_ReceivedDataLength == 2 * sizeof(int)) {
-			iprintf(WIFI_Buffer);
+			// TODO: get data to be received consitently and printed out visible
+			unsigned short x = (unsigned short)WIFI_Buffer[0 * sizeof(unsigned short)];
+			unsigned short y = (unsigned short)WIFI_Buffer[1 * sizeof(unsigned short)];
+			iprintf("\x1b[7;0HNiFi x = %04X, y = %04X\n", x, y);
 		}
+
+		// Reset once data received
+		Wifi_ReceivedData = false;
 	}
 }
 

@@ -1,2 +1,3 @@
-build/
-.nds
+*build/
+*.nds
+*.elf
