@@ -8,6 +8,7 @@ As a heads up for what this attempts to do is, run the DS in promiscuous mode an
 
 ## Prerequisites
 
+1. Install [devkitpro](https://devkitpro.org/wiki/Getting_Started) v3.0.3 (latest)
 1. Clone [jpenny1993/dswifi](https://github.com/jpenny1993/dswifi)
 1. Open a terminal like msys2 in the root of the repo
 1. Run the `make` command to build the dswifi library
