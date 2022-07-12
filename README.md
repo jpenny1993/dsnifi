@@ -2,7 +2,7 @@
 
 This is a proof of concept demo application showing how 2 Nintendo DS consoles can interact with each other using local wireless communication.
 
-The code to allow NiFi on the NDS isn't mine, it originated from [CTurt/dsgmLib](https://github.com/CTurt/dsgmLib). I've just removed gamemaker wrapper and put it directly into a fork of the devkitpro dswifi library.
+The code to allow NiFi on the NDS isn't mine, it originated from [CTurt/dsgmLib](https://github.com/CTurt/dsgmLib). I've just removed the gamemaker wrapper and put it directly into a fork of the devkitpro dswifi library.
 
 As a heads up for what this attempts to do is, run the DS in promiscuous mode and accept data from all WiFi available channels which isn't ideal.
 
