@@ -748,7 +748,7 @@ int main(void)
 
 	printf("Press UP to create a new room\n");
 	printf("Press DOWN to join the first available room\n");
-	printf("Press LEFT to leave a joined room\n");
+	printf("Press RIGHT to leave a joined room\n");
 	printf("Hosts will negociate when their room ID conflicts\n");
 	printf("Leaving as the host will perform a host migration\n");
 
