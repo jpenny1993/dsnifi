@@ -1,8 +1,10 @@
 # ADR 003: Room Status System for Dynamic Join Control
 
-**Status:** Proposed
+**Status:** Implemented
 
 **Date:** 2025-11-22
+
+**Implementation Date:** 2025-11-22
 
 ---
 
@@ -971,6 +973,81 @@ if (status < 0 || status > 3) {
 | 30Hz | 5.8 hours | +81% |
 
 **Note:** 30Hz feels sluggish for most games (not recommended). 60Hz is optimal default.
+
+---
+
+## Implementation Notes
+
+**Status:** ✅ Successfully implemented in dswifi library
+
+**Implementation Date:** 2025-11-22
+
+**Changes Made:**
+
+### dswifi Library (v0.4.7+)
+
+**Public API (`include/dsnifi9.h`):**
+- Added `NiFiRoomStatus` enum with 4 states
+- Updated `NiFiRoom` struct with `status` field
+- Added `NiFi_IsHost()` function
+- Added `NiFi_SetRoomStatus()` function
+- Added `NiFi_GetRoomStatus()` function
+- Added `NiFi_CanPlayerJoin()` function
+- Added `NiFi_SetPacketRate()` function for performance tuning
+
+**Core Implementation (`arm9/source/nifi_arm9.c`):**
+- Added `currentRoomStatus` state variable
+- Added `IsSpectatorMode` placeholder for future spectator mode compatibility
+- Implemented all room status management functions
+- Enhanced `SetupNiFiClient()` to prioritize returning player slot reuse
+- Changed default timer from 240Hz to 60Hz (~40% battery savings)
+- Updated `NiFi_Init()` to initialize room status
+- Updated `NiFi_CreateRoom()` to set initial status to LOBBY_OPEN
+
+**Protocol Integration:**
+- Updated join validation in `HandlePacketAsHost()` to use `NiFi_CanPlayerJoin()`
+- Updated room announcement (CMD_ROOM_SEARCH response) to include status field
+- Added status parsing in room announcement handler with backward compatibility
+- Added ROOM_STATUS packet handler in `HandlePacketAsClient()`
+- **CRITICAL:** Added MAC filtering with spectator mode bypass in `IsPacketIntendedForMe()`
+
+**Internal Headers (`arm9/source/nifi_arm9.h`):**
+- Added `NiFiRoomStatus` enum definition
+- Updated `NiFiRoom` struct
+- Added function declarations for room status functions
+
+### Build Results
+
+All libraries built successfully:
+- ✅ `libdswifi9.a` (release ARM9)
+- ✅ `libdswifi7.a` (release ARM7)
+- ✅ `libdswifi9d.a` (debug ARM9)
+- ✅ `libdswifi7d.a` (debug ARM7)
+
+### Key Features Delivered
+
+1. **Room Status Control:** Host can control join behavior with 4 distinct states
+2. **Returning Player Support:** MAC addresses persist after disconnect, enabling slot reuse
+3. **Performance Optimization:** 60Hz default provides optimal battery life with smooth gameplay
+4. **MAC Filtering:** ~30% CPU savings during in-game states by filtering unknown devices
+5. **Spectator Mode Ready:** Critical `!IsSpectatorMode` bypass ensures future compatibility
+6. **Backward Compatible:** Legacy packets without status field default to LOBBY_OPEN
+
+### Testing Required
+
+The implementation is code-complete but requires hardware testing:
+- [ ] Basic status transitions (LOBBY_OPEN ↔ LOBBY_CLOSED)
+- [ ] Returning player rejoin (INGAME_CLOSED with MAC persistence)
+- [ ] Slot reuse verification
+- [ ] Room discovery during in-game states
+- [ ] Timer frequency testing (30Hz, 60Hz, 120Hz, 240Hz)
+- [ ] Drop-in mode (INGAME_OPEN)
+
+### Next Steps
+
+1. Update nifitest demo application to utilize new room status controls
+2. Perform hardware testing with multiple Nintendo DS devices
+3. Consider implementing spectator mode (infrastructure is in place)
 
 ---
 
