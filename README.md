@@ -111,3 +111,11 @@ void OnPositionUpdated(Position pos, u8 clientIndex, NiFiClient client) {
 - Access to `clients[]` array for all connected player info
 - `localClient` pointer for your own client data
 - Packet data: up to 6 parameters, 32 chars each
+
+## Documentation
+
+For deeper understanding of the protocol and implementation:
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete protocol specification, packet format, circular buffer architecture, design decisions, and performance characteristics
+- **[LESSONS_LEARNED.md](LESSONS_LEARNED.md)** - Development journey, critical bugs encountered, debugging techniques, and general embedded networking wisdom
+- **[IMPLEMENTATION_PLAN_ROOM_STATUS.md](IMPLEMENTATION_PLAN_ROOM_STATUS.md)** - Planned room status system for lobby management and player reconnection
