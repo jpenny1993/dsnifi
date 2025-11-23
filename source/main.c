@@ -36,6 +36,25 @@
 // Application state: stores position data for all connected clients
 ClientData players[CLIENT_MAX];
 
+// Spectator mode state
+bool inSpectatorMode = false;
+NiFiRoom discoveredRooms[6];
+int currentSpectatorRoomIndex = 0;
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+// Get human-readable name for room status
+const char* GetRoomStatusName(NiFiRoomStatus status) {
+	switch (status) {
+		case NIFI_ROOM_LOBBY_OPEN: return "LOBBY_OPEN";
+		case NIFI_ROOM_LOBBY_CLOSED: return "LOBBY_CLOSED";
+		case NIFI_ROOM_INGAME_OPEN: return "INGAME_OPEN";
+		case NIFI_ROOM_INGAME_CLOSED: return "INGAME_CLOSED";
+		default: return "UNKNOWN";
+	}
+}
+
 // ============================================================================
 // DEBUG OUTPUT HANDLER
 // ============================================================================
@@ -68,12 +87,15 @@ void OnDebugOutput(int type, char* message) {
 //   room - Contains room details (macAddress, roomName, memberCount, roomSize)
 // Use Case: Display available rooms to the user or implement auto-join logic
 void OnRoomAnnounced(NiFiRoom room) {
-	printf("%sROOM FOUND: %s (%d/%d players)\n", WHITE,
-	       room.roomName, room.memberCount, room.roomSize);
+	printf("%sROOM FOUND: %s (%d/%d players) [%s]\n", WHITE,
+	       room.roomName, room.memberCount, room.roomSize,
+	       GetRoomStatusName(room.status));
 
-	// Auto-join the first available room (for testing)
-	// In a real game, you might want to let the user choose
-	NiFi_JoinRoom(room.macAddress);
+	// In spectator mode, just display the room
+	// In active mode, auto-join the first available room (for testing)
+	if (!inSpectatorMode) {
+		NiFi_JoinRoom(room.macAddress);
+	}
 }
 
 // ============================================================================
@@ -254,13 +276,20 @@ int main(void)
 	// ========================================================================
 	printf("=== NiFi Demo Application ===\n");
 	printf("Game ID: %s\n\n", GAME_IDENTIFIER);
-	printf("Controls:\n");
+	printf("ACTIVE MODE:\n");
 	printf("  UP    - Create room\n");
 	printf("  DOWN  - Join room\n");
 	printf("  RIGHT - Leave room\n");
 	printf("  LEFT  - Send chat message\n");
 	printf("  A     - Use item (demo)\n");
+	printf("  L/R   - Room status (host)\n");
+	printf("  X     - Show room status\n");
 	printf("  TOUCH - Move cursor\n");
+	printf("\nSPECTATOR MODE:\n");
+	printf("  SELECT - Start spectating\n");
+	printf("  START  - Stop spectating\n");
+	printf("  B      - Cycle rooms\n");
+	printf("  Y      - Join room\n");
 	printf("\n");
 
 	// ========================================================================
@@ -289,7 +318,7 @@ int main(void)
 		int keys = keysHeld();
 		int keysdown = keysDown();
 
-		if (keys & KEY_TOUCH) // STYLUS POSITION
+		if (keys & KEY_TOUCH && !inSpectatorMode) // STYLUS POSITION (not in spectator mode)
 		{
 			Position *pos = &(players[0].position);
 			pos->x = touchXY.px;
@@ -344,6 +373,104 @@ int main(void)
 			printf("%sUsed item #42\n", MAGENTA);
 		}
 
+		// ====================================================================
+		// ROOM STATUS CONTROLS (Host only)
+		// ====================================================================
+		if (keysdown & KEY_L) // PREVIOUS ROOM STATUS
+		{
+			if (NiFi_IsHost()) {
+				NiFiRoomStatus current = NiFi_GetRoomStatus();
+				NiFiRoomStatus newStatus = (current == 0) ? NIFI_ROOM_INGAME_CLOSED : (current - 1);
+				NiFi_SetRoomStatus(newStatus);
+				printf("%sRoom status: %s\n", CYAN, GetRoomStatusName(newStatus));
+			} else {
+				printf("%sOnly host can change room status\n", RED);
+			}
+		}
+
+		if (keysdown & KEY_R) // NEXT ROOM STATUS
+		{
+			if (NiFi_IsHost()) {
+				NiFiRoomStatus current = NiFi_GetRoomStatus();
+				NiFiRoomStatus newStatus = (current == NIFI_ROOM_INGAME_CLOSED) ? 0 : (current + 1);
+				NiFi_SetRoomStatus(newStatus);
+				printf("%sRoom status: %s\n", CYAN, GetRoomStatusName(newStatus));
+			} else {
+				printf("%sOnly host can change room status\n", RED);
+			}
+		}
+
+		if (keysdown & KEY_X) // SHOW ROOM STATUS
+		{
+			NiFiRoomStatus status = NiFi_GetRoomStatus();
+			printf("%sCurrent room status: %s\n", WHITE, GetRoomStatusName(status));
+			printf("%sYou are %s\n", WHITE, NiFi_IsHost() ? "HOST" : "CLIENT");
+		}
+
+		// ====================================================================
+		// SPECTATOR MODE CONTROLS
+		// ====================================================================
+		if (keysdown & KEY_SELECT) // START SPECTATOR MODE
+		{
+			if (!inSpectatorMode && !NiFi_IsSpectating()) {
+				printf("%sStarting spectator mode...\n", CYAN);
+				if (NiFi_StartSpectating(5, NIFI_TIMER, GAME_IDENTIFIER)) {
+					inSpectatorMode = true;
+					currentSpectatorRoomIndex = 0;
+					printf("%sSpectator mode active!\n", GREEN);
+					printf("%sPress B to discover rooms\n", WHITE);
+				} else {
+					printf("%sFailed to start spectator mode\n", RED);
+				}
+			} else {
+				printf("%sAlready in spectator mode\n", YELLOW);
+			}
+		}
+
+		if (keysdown & KEY_START) // STOP SPECTATOR MODE
+		{
+			if (inSpectatorMode && NiFi_IsSpectating()) {
+				NiFi_StopSpectating();
+				inSpectatorMode = false;
+				printf("%sStopped spectator mode\n", YELLOW);
+			}
+		}
+
+		if (keysdown & KEY_B) // DISCOVER/CYCLE ROOMS IN SPECTATOR MODE
+		{
+			if (inSpectatorMode && NiFi_IsSpectating()) {
+				int roomCount = NiFi_GetDiscoveredRooms(discoveredRooms);
+				if (roomCount > 0) {
+					// Cycle to next room
+					currentSpectatorRoomIndex = (currentSpectatorRoomIndex + 1) % roomCount;
+					NiFiRoom room = discoveredRooms[currentSpectatorRoomIndex];
+					printf("%s[%d/%d] %s (%d/%d) [%s]\n", CYAN,
+					       currentSpectatorRoomIndex + 1, roomCount,
+					       room.roomName, room.memberCount, room.roomSize,
+					       GetRoomStatusName(room.status));
+				} else {
+					printf("%sNo rooms discovered yet\n", YELLOW);
+				}
+			}
+		}
+
+		if (keysdown & KEY_Y) // JOIN SPECTATOR ROOM
+		{
+			if (inSpectatorMode && NiFi_IsSpectating()) {
+				int roomCount = NiFi_GetDiscoveredRooms(discoveredRooms);
+				if (roomCount > 0 && currentSpectatorRoomIndex < roomCount) {
+					NiFiRoom room = discoveredRooms[currentSpectatorRoomIndex];
+					if (NiFi_SpectateRoom(room)) {
+						printf("%sNow spectating: %s\n", GREEN, room.roomName);
+					} else {
+						printf("%sFailed to spectate room\n", RED);
+					}
+				} else {
+					printf("%sNo rooms available\n", YELLOW);
+				}
+			}
+		}
+
 		// Start drawing 2D
 		glBegin2D();
 
@@ -353,15 +480,29 @@ int main(void)
 			if (clients[i].clientId == ID_EMPTY) continue;
 			if (clients[i].clientId == ID_ANY) continue;
 
-			// Change the color of the local player
-			int color = (clients[i].clientId == localClient->clientId)
-				? RGB15(0, 10, 31)
-				: RGB15(31, 31, 31);
+			// Change the color based on mode
+			int color;
+			if (inSpectatorMode) {
+				// In spectator mode, all players are gray except host (yellow)
+				color = (clients[i].clientId == 1)
+					? RGB15(31, 31, 0)   // Yellow for host
+					: RGB15(20, 20, 20); // Gray for other players
+			} else {
+				// In active mode, local player is blue, others are white
+				color = (clients[i].clientId == localClient->clientId)
+					? RGB15(0, 10, 31)   // Blue for local player
+					: RGB15(31, 31, 31); // White for other players
+			}
 
 			// draw a box at the client position
 			glBoxFilled(players[i].position.x - 3, players[i].position.y - 3,
 							players[i].position.x + 3, players[i].position.y + 3,
 							color);
+		}
+
+		// Draw spectator mode indicator in top-left corner
+		if (inSpectatorMode) {
+			glBoxFilled(2, 2, 60, 12, RGB15(31, 0, 31)); // Purple box
 		}
 
 		glEnd2D();

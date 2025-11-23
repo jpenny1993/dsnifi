@@ -1,7 +1,8 @@
 # NiFi Protocol Architecture
 
-**Document Version:** 1.0
+**Document Version:** 1.1
 **Created:** 2025-01-22
+**Last Updated:** 2025-01-23
 **Author:** jpenny1993
 **Purpose:** Technical specification of the NiFi multiplayer networking protocol for Nintendo DS
 
@@ -363,7 +364,7 @@ This provides basic security in local multiplayer environments.
 | Command | Direction | Purpose | Data Parameters |
 |---------|-----------|---------|----------------|
 | **SCAN** | Client → Broadcast | Request nearby rooms announce presence | `data[0]` = requesting MAC |
-| **ROOM** | Host → Client | Announce room info in response to SCAN | `data[0]` = room MAC<br>`data[1]` = room name<br>`data[2]` = member count<br>`data[3]` = max size |
+| **ROOM** | Host → Client | Announce room info in response to SCAN | `data[0]` = room MAC<br>`data[1]` = room name<br>`data[2]` = member count<br>`data[3]` = max size<br>`data[4]` = room status (0-3, v0.4.7+) |
 | **JOIN** | Client → Host | Request to join room | `data[0]` = client MAC<br>`data[1]` = player name |
 | **ACCEPT** | Host → Client | Approve join request | `data[0]` = client MAC<br>`data[1]` = host name |
 | **DENY** | Host → Client | Reject join request (room full) | `data[0]` = client MAC |
@@ -372,6 +373,7 @@ This provides basic security in local multiplayer environments.
 | **MIGRATE** | Host → One Client | Transfer host role | `data[0]` = new room ID |
 | **HOST** | New Host → All | Announce new host | `data[0]` = new room ID |
 | **CLIENT** | Host → Client | Announce existing client to new joiner | `data[0]` = clientId<br>`data[1]` = MAC<br>`data[2]` = name |
+| **STATUS** | Host → All | Broadcast room status change (v0.4.7+) | `data[0]` = status value (0-3) |
 | **POSITION** | Any → Any | Broadcast player position | `data[0]` = x<br>`data[1]` = y<br>`data[2]` = z |
 | **SCORE** | Any → Any | Broadcast player score | `data[0]` = score value |
 | **ACT** | Any → Any | Broadcast player action | `data[0]` = action type<br>`data[1-5]` = action params |
