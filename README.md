@@ -74,6 +74,7 @@ NiFi_ScanRooms();   // Client (auto-calls OnRoomAnnounced when found)
 | `OnHostMigration` | New host selected | Update UI, pause game |
 | `OnPositionUpdated` | Position broadcast received | Update player position |
 | `OnGamePacket` | Custom packet received | Chat, items, game events |
+| `OnFullGameStateRequested` | Client/spectator requests game state | Send full state to late-joining player |
 
 ### Sending Custom Game Events
 ```c
@@ -105,9 +106,53 @@ void OnPositionUpdated(Position pos, u8 clientIndex, NiFiClient client) {
 }
 ```
 
+### Spectator Mode
+```c
+// Enable spectator mode (call after NiFi_Init)
+NiFi_SetSpectatorMode(true);
+
+// Scan for active games
+NiFi_ScanRooms();  // Triggers OnRoomAnnounced for all rooms
+
+// Watch a specific room (uses same function as joining)
+NiFi_JoinRoom(room);  // In spectator mode, joins passively without sending packets
+
+// Request full game state from host (for late-joining spectators)
+NiFi_RequestFullGameState();
+
+// Host responds to state request
+void OnFullGameStateRequested(char macAddress[MAC_ADDRESS_LENGTH]) {
+    // Send game state using custom packets
+    NiFiPacket packet;
+    NiFi_SetPacket(&packet, "STATE");
+    // ... populate with your game state data
+    NiFi_SendBroadcast(&packet, NULL);
+}
+
+// Leave current room (returns to scanning, stays in spectator mode)
+NiFi_LeaveRoom();
+
+// Disable spectator mode
+NiFi_SetSpectatorMode(false);
+```
+
+**Spectator Features:**
+- **Passive observation**: Spectators receive all packets but cannot participate
+- **Full game scanning**: Can discover all rooms regardless of status (open/locked/in-game)
+- **State synchronization**: Request full game state to catch up on late joins
+- **No slot consumption**: Spectators don't count toward room capacity
+
 ### Important Notes
 - All event handlers run in **interrupt context** (from hardware timer)
 - Keep handler code fast and simple to avoid blocking network updates
 - Access to `clients[]` array for all connected player info
 - `localClient` pointer for your own client data
 - Packet data: up to 6 parameters, 32 chars each
+
+## Documentation
+
+For deeper understanding of the protocol and implementation:
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete protocol specification, packet format, circular buffer architecture, design decisions, and performance characteristics
+- **[LESSONS_LEARNED.md](LESSONS_LEARNED.md)** - Development journey, critical bugs encountered, debugging techniques, and general embedded networking wisdom
+- **[IMPLEMENTATION_PLAN_ROOM_STATUS.md](IMPLEMENTATION_PLAN_ROOM_STATUS.md)** - Planned room status system for lobby management and player reconnection
