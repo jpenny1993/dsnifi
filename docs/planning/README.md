@@ -60,7 +60,40 @@ A room state management system that controls player joining based on game state 
 
 ### Planned Features
 
-[Add planned features here as they are proposed]
+#### Directed Mode (Power Saving)
+**Status:** Design Phase (Hardware Investigation Required)
+**Complexity:** High
+**Folder:** `directed-mode/`
+
+An optional power-saving WiFi mode that switches from promiscuous packet reception to directed packet reception, enabling hardware-level power management.
+
+**Documents:**
+- ✅ [Design Specification](directed-mode/directed-mode-design.md)
+- ⬜ Implementation Guide (pending hardware investigation)
+
+**Key Features:**
+- ~50% power reduction (estimated)
+- Hardware packet filtering instead of software
+- 30-60 minutes additional battery life
+- Opt-in mode for battery-conscious games
+
+**Critical Limitation:** **INCOMPATIBLE with Spectator Mode** - modes are mutually exclusive.
+
+---
+
+#### Memory Footprint Optimization
+**Status:** Design Phase
+**Complexity:** Medium
+**Folder:** `memory-footprint/`
+
+Reduce NiFi library memory usage from ~14.4 KB to ~7-9 KB through parameter length reduction and buffer tuning.
+
+**Documents:**
+- ✅ [Design Specification](memory-footprint/memory-footprint-design.md)
+- ✅ [Implementation Guide](memory-footprint/memory-footprint-implementation-guide.md)
+- ✅ [Review](memory-footprint/memory-footprint-review.md)
+
+---
 
 ---
 
@@ -151,7 +184,12 @@ Each document should include:
 - **Impact:** Breaking this breaks spectator mode entirely
 - **Reference:** `room-status-review.md` Section "Spectator Mode Compatibility"
 
-### [Add other feature dependencies here as they are discovered]
+### Spectator Mode ⟷ Directed Mode (MUTUAL EXCLUSION)
+- **Dependency:** These modes CANNOT coexist
+- **Reason:** Spectators require promiscuous mode to eavesdrop; directed mode uses unicast
+- **Impact:** If directed mode is active, spectators cannot observe games
+- **Resolution:** Modes are mutually exclusive - host must choose one
+- **Reference:** `directed-mode/directed-mode-design.md` Section "Spectator Mode Incompatibility"
 
 ---
 
