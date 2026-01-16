@@ -26,12 +26,13 @@
 // APPLICATION STATES
 // ============================================================================
 typedef enum {
-    STATE_MAIN_MENU,        // Choose Host / Join / Spectate
-    STATE_LOBBY_SETUP,      // Configure room settings (host only)
-    STATE_ROOM_BROWSER,     // Browse and select available rooms
-    STATE_LOBBY,            // In lobby - waiting for game start
-    STATE_IN_GAME,          // Playing the collaborative game
-    STATE_SPECTATING        // Watching a game as spectator
+    STATE_MAIN_MENU,           // Choose Host / Join / Spectate
+    STATE_LOBBY_SETUP,         // Configure room settings (host only)
+    STATE_ROOM_BROWSER,        // Browse and select available rooms
+    STATE_LOBBY,               // In lobby - waiting for game start
+    STATE_IN_GAME,             // Playing the collaborative game
+    STATE_SPECTATOR_BROWSER,   // Browse games to spectate
+    STATE_SPECTATING           // Watching a game as spectator
 } AppState;
 
 // ============================================================================
@@ -96,6 +97,18 @@ typedef struct {
 } PlayerDrawing;
 
 // ============================================================================
+// DEBUG CONSOLE
+// ============================================================================
+#define MAX_DEBUG_MESSAGES 4
+#define DEBUG_MESSAGE_LENGTH 64
+
+typedef struct {
+    char message[DEBUG_MESSAGE_LENGTH];
+    int type;           // Message type (for color coding)
+    u32 timestamp;
+} DebugMessage;
+
+// ============================================================================
 // LOBBY DATA
 // ============================================================================
 #define MAX_CHAT_MESSAGES 10
@@ -131,6 +144,10 @@ typedef struct {
     ChatMessage chatHistory[MAX_CHAT_MESSAGES];
     int chatCount;
 
+    // Debug console
+    DebugMessage debugMessages[MAX_DEBUG_MESSAGES];
+    int debugCount;
+
     // Player data
     PlayerData players[CLIENT_MAX];
 
@@ -161,8 +178,12 @@ void UI_DrawLobbySetup(GameState* state);
 void UI_DrawRoomBrowser(GameState* state);
 void UI_DrawLobby(GameState* state);
 void UI_DrawGame(GameState* state);
+void UI_DrawSpectatorBrowser(GameState* state);
 void UI_DrawSpectator(GameState* state);
 void UI_ShowMessage(GameState* state, const char* message, u32 duration);
+void UI_AddDebugMessage(GameState* state, const char* message, int type);
+void UI_DrawDebugConsole(GameState* state);
+void UI_ClearUIArea(void);
 
 // game.c
 void Game_Init(GameState* state);

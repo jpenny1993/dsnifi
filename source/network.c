@@ -21,7 +21,16 @@ void Game_HandleDrawPacket(GameState* state, NiFiPacket packet);
 // ============================================================================
 
 void OnRoomAnnounced(NiFiRoom room) {
-    // Add to discovered rooms list
+    // Check if room already exists (by MAC address)
+    for (int i = 0; i < g_state.roomCount; i++) {
+        if (strcmp(g_state.discoveredRooms[i].macAddress, room.macAddress) == 0) {
+            // Update existing room (status/members may have changed)
+            g_state.discoveredRooms[i] = room;
+            return;
+        }
+    }
+
+    // Add new room if not full
     if (g_state.roomCount < 6) {
         g_state.discoveredRooms[g_state.roomCount] = room;
         g_state.roomCount++;
@@ -162,11 +171,100 @@ void OnGamePacket(NiFiPacket packet) {
             }
         }
     }
+    else if (strcmp(packet.command, "CURSOR") == 0) {
+        // Player cursor position (sent as part of full game state)
+        u8 clientId = atoi(packet.data[0]);
+        s16 x = atoi(packet.data[1]);
+        s16 y = atoi(packet.data[2]);
+        // Find the client with this clientId and update their cursor
+        for (int i = 0; i < CLIENT_MAX; i++) {
+            if (clients[i].clientId == clientId) {
+                g_state.players[i].drawing.cursorX = x;
+                g_state.players[i].drawing.cursorY = y;
+                break;
+            }
+        }
+    }
 }
 
 void OnDebugOutput(int type, char* message) {
-    // Suppress debug output for cleaner UI
-    // Could optionally log to file or show minimal messages
+    // Filter out raw packets (too verbose)
+    if (type == NIFI_DBG_RawPacket) {
+        return;
+    }
+
+    // Format debug messages with readable type labels
+    char formattedMsg[DEBUG_MESSAGE_LENGTH];
+    const char* prefix;
+
+    switch (type) {
+        case NIFI_DBG_Information:
+            prefix = "I";
+            break;
+        case NIFI_DBG_Error:
+            prefix = "E";
+            break;
+        case NIFI_DBG_SentPacket:
+            prefix = "S";
+            break;
+        case NIFI_DBG_SentAcknowledgement:
+            prefix = "SA";
+            break;
+        case NIFI_DBG_ReceivedPacket:
+            prefix = "R";
+            break;
+        case NIFI_DBG_ReceivedAcknowledgement:
+            prefix = "RA";
+            break;
+        default:
+            prefix = "?";
+            break;
+    }
+
+    // Format: TYPE | message (truncated to fit)
+    snprintf(formattedMsg, sizeof(formattedMsg), "%s | %s", prefix, message);
+    UI_AddDebugMessage(&g_state, formattedMsg, type);
+}
+
+void OnFullGameStateRequested(char macAddress[MAC_ADDRESS_LENGTH]) {
+    // Host received a request for full game state from a spectator
+    // Send all relevant game state using custom packets
+
+    printf("Sending full game state to spectator\n");
+
+    // Send complete state for each client together (prevents partial loading)
+    for (int i = 0; i < CLIENT_MAX; i++) {
+        if (clients[i].clientId == ID_EMPTY || clients[i].clientId == ID_ANY) {
+            continue;
+        }
+
+        // 1. Announce client (so spectator adds them to clients[])
+        NiFiPacket announcePacket;
+        NiFi_SetPacket(&announcePacket, "CLIENT");
+        sprintf(announcePacket.data[0], "%d", clients[i].clientId);
+        strcpy(announcePacket.data[1], clients[i].macAddress);
+        strcpy(announcePacket.data[2], clients[i].playerName);
+        NiFi_SendBroadcast(&announcePacket, NULL);
+
+        // 2. Send player color
+        NiFiPacket colorPacket;
+        NiFi_SetPacket(&colorPacket, "COLOR");
+        sprintf(colorPacket.data[0], "%d", clients[i].clientId);
+        sprintf(colorPacket.data[1], "%d", g_state.players[i].drawing.brushColor);
+        NiFi_SendBroadcast(&colorPacket, NULL);
+
+        // 3. Send player cursor position
+        NiFiPacket posPacket;
+        NiFi_SetPacket(&posPacket, "CURSOR");
+        sprintf(posPacket.data[0], "%d", clients[i].clientId);
+        sprintf(posPacket.data[1], "%d", g_state.players[i].drawing.cursorX);
+        sprintf(posPacket.data[2], "%d", g_state.players[i].drawing.cursorY);
+        NiFi_SendBroadcast(&posPacket, NULL);
+    }
+
+    // Note: Canvas state is sent via continuous DRAW packets during gameplay
+    // If you need to send the full canvas, you could add a "CANVAS" packet type
+    // that sends compressed canvas data or key pixels
 }
 
 // ============================================================================
@@ -185,6 +283,7 @@ void Network_Init(void) {
     NiFi_OnHostMigration(OnHostMigration);
     NiFi_OnPositionUpdated(OnPositionUpdated);
     NiFi_OnGamePacket(OnGamePacket);
+    NiFi_OnFullGameStateRequested(OnFullGameStateRequested);
 
     // Initialize NiFi
     NiFi_Init(WIFI_CHANNEL, NIFI_TIMER, GAME_IDENTIFIER);

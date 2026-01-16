@@ -39,6 +39,13 @@ void ClearText(void) {
     printf("\x1b[2J");  // Clear screen
 }
 
+// Clear only the UI area (lines 5-24), preserving debug console (lines 0-4)
+void UI_ClearUIArea(void) {
+    for (int line = 5; line < 24; line++) {
+        printf("\x1b[%d;0H\x1b[K", line);  // Move to line and clear it
+    }
+}
+
 // Draw a filled rounded rectangle (approximation using boxes)
 void DrawPanel(int x, int y, int w, int h, int color) {
     glBoxFilled(x, y, x + w, y + h, color);
@@ -167,6 +174,74 @@ void DrawPlayerIndicator(int x, int y, const char* name, int color, bool isHost,
 }
 
 // ============================================================================
+// DEBUG CONSOLE
+// ============================================================================
+
+// Add a debug message to the circular buffer
+void UI_AddDebugMessage(GameState* state, const char* message, int type) {
+    if (!state) return;
+
+    // Circular buffer - overwrite oldest when full
+    int index = state->debugCount % MAX_DEBUG_MESSAGES;
+    strncpy(state->debugMessages[index].message, message, DEBUG_MESSAGE_LENGTH - 1);
+    state->debugMessages[index].message[DEBUG_MESSAGE_LENGTH - 1] = '\0';
+    state->debugMessages[index].type = type;
+    state->debugMessages[index].timestamp = 0; // Could use timer
+
+    state->debugCount++;
+}
+
+// Draw the debug console (top 4 lines of top screen)
+void UI_DrawDebugConsole(GameState* state) {
+    if (!state) return;
+
+    // Calculate how many messages we actually have
+    int messageCount = state->debugCount < MAX_DEBUG_MESSAGES ? state->debugCount : MAX_DEBUG_MESSAGES;
+
+    // Clear debug area only
+    for (int line = 0; line < MAX_DEBUG_MESSAGES; line++) {
+        printf("\x1b[%d;0H\x1b[K", line);
+    }
+
+    // Draw messages from oldest to newest
+    for (int i = 0; i < messageCount; i++) {
+        // Calculate which message to show (circular buffer)
+        int bufferIndex;
+        if (state->debugCount < MAX_DEBUG_MESSAGES) {
+            // Not wrapped yet, show from start
+            bufferIndex = i;
+        } else {
+            // Wrapped, show last N messages
+            bufferIndex = (state->debugCount + i) % MAX_DEBUG_MESSAGES;
+        }
+
+        // Select color based on message type
+        const char* colorCode;
+        switch (state->debugMessages[bufferIndex].type) {
+            case NIFI_DBG_Error:
+                colorCode = "\x1b[31m";  // Red
+                break;
+            case NIFI_DBG_Information:
+                colorCode = "\x1b[34m";  // Blue
+                break;
+            case NIFI_DBG_SentAcknowledgement:
+            case NIFI_DBG_ReceivedAcknowledgement:
+                colorCode = "\x1b[32m";  // Green
+                break;
+            case NIFI_DBG_SentPacket:
+            case NIFI_DBG_ReceivedPacket:
+                colorCode = "\x1b[33m";  // Yellow
+                break;
+            default:
+                colorCode = "\x1b[0m";   // Default (white)
+                break;
+        }
+
+        printf("\x1b[%d;0H%s%s\x1b[0m", i, colorCode, state->debugMessages[bufferIndex].message);
+    }
+}
+
+// ============================================================================
 // MAIN MENU
 // ============================================================================
 void UI_DrawMainMenu(GameState* state) {
@@ -186,9 +261,10 @@ void UI_DrawMainMenu(GameState* state) {
     glEnd2D();
     glFlush(0);
 
-    // Draw text labels on console
-    ClearText();
-    PrintAt(9, 4, "NiFi Lobby Demo");
+    // Draw debug console and UI text
+    UI_DrawDebugConsole(state);
+    UI_ClearUIArea();
+    PrintAt(9, 6, "NiFi Lobby Demo");
     PrintAt(11, 11, "HOST LOBBY");
     PrintAt(11, 15, "JOIN LOBBY");
     PrintAt(12, 19, "SPECTATE");
@@ -223,9 +299,10 @@ void UI_DrawLobbySetup(GameState* state) {
     glEnd2D();
     glFlush(0);
 
-    // Draw text labels
-    ClearText();
-    PrintAt(8, 4, "Create Lobby");
+    // Draw debug console and UI text
+    UI_DrawDebugConsole(state);
+    UI_ClearUIArea();
+    PrintAt(8, 6, "Create Lobby");
     PrintAt(7, 8, "Max Players: %d", state->maxPlayers);
     PrintAt(9, 16, "-      +");
     PrintAt(12, 20, "CREATE");
@@ -276,12 +353,13 @@ void UI_DrawRoomBrowser(GameState* state) {
     glEnd2D();
     glFlush(0);
 
-    // Draw text labels
-    ClearText();
-    PrintAt(8, 2, "Available Rooms");
+    // Draw debug console and UI text
+    UI_DrawDebugConsole(state);
+    UI_ClearUIArea();
+    PrintAt(8, 6, "Available Rooms");
 
     // Room names
-    int textY = 7;
+    int textY = 9;
     for (int i = 0; i < state->roomCount && i < 6; i++) {
         NiFiRoom* room = &state->discoveredRooms[i];
         const char* status = (room->status == NIFI_ROOM_LOBBY_OPEN) ? "Open" :
@@ -352,18 +430,19 @@ void UI_DrawLobby(GameState* state) {
     glEnd2D();
     glFlush(0);
 
-    // Draw text labels
-    ClearText();
+    // Draw debug console and UI text
+    UI_DrawDebugConsole(state);
+    UI_ClearUIArea();
     // Room status
     NiFiRoomStatus status = NiFi_GetRoomStatus();
     const char* statusText = (status == NIFI_ROOM_LOBBY_OPEN) ? "OPEN" :
                             (status == NIFI_ROOM_LOBBY_CLOSED) ? "LOCKED" :
                             (status == NIFI_ROOM_INGAME_OPEN) ? "IN GAME" : "CLOSED";
-    PrintAt(10, 3, "Lobby - %s", statusText);
+    PrintAt(10, 6, "Lobby - %s", statusText);
 
     // Player names
     int textX = 3;
-    int textY = 7;
+    int textY = 9;
     for (int i = 0; i < CLIENT_MAX; i++) {
         if (clients[i].clientId != ID_EMPTY && clients[i].clientId != ID_ANY) {
             const char* ready = state->players[i].isReady ? "*" : " ";
@@ -453,9 +532,81 @@ void UI_DrawGame(GameState* state) {
     glEnd2D();
     glFlush(0);
 
-    // Draw text labels
-    ClearText();
+    // Draw debug console and UI text
+    UI_DrawDebugConsole(state);
+    UI_ClearUIArea();
     PrintAt(1, 23, "Touch:Move L/R:Color START:Exit");
+}
+
+// ============================================================================
+// SPECTATOR BROWSER
+// ============================================================================
+void UI_DrawSpectatorBrowser(GameState* state) {
+    glBegin2D();
+
+    // Background
+    glBoxFilled(0, 0, 256, 192, COLOR_UI_BG);
+
+    // Title bar
+    DrawPanel(10, 10, 236, 25, COLOR_UI_PANEL);
+
+    // Room list
+    int yOffset = 45;
+    for (int i = 0; i < state->roomCount && i < 6; i++) {
+        NiFiRoom* room = &state->discoveredRooms[i];
+        bool selected = (i == state->selectedRoomIndex);
+
+        // Room panel
+        int panelColor = selected ? COLOR_UI_ACCENT : COLOR_UI_PANEL;
+        DrawPanel(15, yOffset, 226, 22, panelColor);
+
+        // Status badge
+        DrawStatusBadge(20, yOffset + 7, room->status);
+
+        // Border
+        glBox(15, yOffset, 241, yOffset + 22, selected ? COLOR_CYAN : COLOR_GRAY);
+
+        yOffset += 25;
+    }
+
+    // No rooms message area
+    if (state->roomCount == 0) {
+        DrawPanel(60, 80, 136, 30, COLOR_UI_PANEL);
+    }
+
+    // Buttons
+    DrawButton(15, 165, 70, 22, "SCAN", false, false);
+    DrawButton(93, 165, 70, 22, "WATCH", false, state->roomCount == 0);
+    DrawButton(171, 165, 70, 22, "BACK", false, false);
+
+    glEnd2D();
+    glFlush(0);
+
+    // Draw debug console and UI text
+    UI_DrawDebugConsole(state);
+    UI_ClearUIArea();
+
+    // Title (line 6, below debug area)
+    PrintAt(6, 6, "Games to Spectate (%d)", state->roomCount);
+
+    // Room names (starting at line 9)
+    int textY = 9;
+    for (int i = 0; i < state->roomCount && i < 6; i++) {
+        NiFiRoom* room = &state->discoveredRooms[i];
+        const char* status = (room->status == NIFI_ROOM_LOBBY_OPEN) ? "Open" :
+                            (room->status == NIFI_ROOM_LOBBY_CLOSED) ? "Lock" :
+                            (room->status == NIFI_ROOM_INGAME_OPEN) ? "Game" : "Full";
+        PrintAt(4, textY, "%s %s (%d/%d)", status, room->roomName, room->memberCount, room->roomSize);
+        textY += 2;
+    }
+
+    if (state->roomCount == 0) {
+        PrintAt(8, 13, "No games found");
+        PrintAt(7, 15, "Press A to scan");
+        PrintAt(6, 22, "A:Scan   B:Back");
+    } else {
+        PrintAt(2, 22, "A:Scan  UP/DN:Select  X:Watch  B:Back");
+    }
 }
 
 // ============================================================================
@@ -501,14 +652,15 @@ void UI_DrawSpectator(GameState* state) {
     glEnd2D();
     glFlush(0);
 
-    // Draw text labels
-    ClearText();
-    PrintAt(9, 2, "SPECTATING");
+    // Draw debug console and UI text
+    UI_DrawDebugConsole(state);
+    UI_ClearUIArea();
+    PrintAt(9, 6, "SPECTATING");
     if (state->roomCount > 0 && state->selectedRoomIndex < state->roomCount) {
         NiFiRoom* room = &state->discoveredRooms[state->selectedRoomIndex];
-        PrintAt(2, 23, "Watching: %s", room->roomName);
+        PrintAt(2, 23, "Watching: %s (%d/%d)", room->roomName, room->memberCount, room->roomSize);
     }
-    PrintAt(2, 22, "B:Cycle START:Exit");
+    PrintAt(2, 22, "SEL:Request State  B:Back  START:Exit");
 }
 
 // ============================================================================
@@ -530,8 +682,6 @@ void UI_Init(void) {
     // Just mark as initialized
     consoleInitialized = true;
 
-    // Clear the top screen
+    // Clear the top screen (debug console area will be managed by UI_DrawDebugConsole)
     ClearText();
-    PrintAt(0, 0, "NiFi Lobby Demo");
-    PrintAt(0, 1, "==================");
 }

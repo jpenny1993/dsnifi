@@ -31,6 +31,7 @@ void HandleLobbySetupInput(int keysDown, touchPosition touch);
 void HandleRoomBrowserInput(int keysDown, touchPosition touch);
 void HandleLobbyInput(int keysDown, touchPosition touch);
 void HandleGameInput(int keysDown, int keysHeld, touchPosition touch);
+void HandleSpectatorBrowserInput(int keysDown, touchPosition touch);
 void HandleSpectatorInput(int keysDown, touchPosition touch);
 
 void RenderCanvas(void);
@@ -117,17 +118,17 @@ void HandleMainMenuInput(int keysDown, touchPosition touch) {
                 break;
 
             case 2:  // Spectate
-                printf("Starting spectator mode...\n");
-                if (NiFi_StartSpectating(WIFI_CHANNEL, NIFI_TIMER, GAME_IDENTIFIER)) {
-                    g_state.currentState = STATE_SPECTATING;
-                    g_state.roomCount = 0;
-                    printf("Spectator mode active!\n");
-                    printf("B: Cycle rooms\n");
-                    printf("A: Watch selected room\n");
-                    printf("START: Exit spectator\n\n");
-                } else {
-                    printf("Failed to start spectator mode\n\n");
-                }
+                NiFi_SetSpectatorMode(true);
+                g_state.currentState = STATE_SPECTATOR_BROWSER;
+                g_state.roomCount = 0;
+                g_state.selectedRoomIndex = 0;
+                printf("Spectator mode enabled\n");
+                printf("Scanning for games...\n");
+                printf("A: Rescan\n");
+                printf("UP/DOWN: Select game\n");
+                printf("X: Watch selected\n");
+                printf("B: Back\n\n");
+                NiFi_ScanRooms();
                 break;
         }
     }
@@ -194,13 +195,55 @@ void HandleRoomBrowserInput(int keysDown, touchPosition touch) {
         if (g_state.roomCount > 0 && g_state.selectedRoomIndex < g_state.roomCount) {
             NiFiRoom* room = &g_state.discoveredRooms[g_state.selectedRoomIndex];
             printf("Joining %s...\n", room->roomName);
-            NiFi_JoinRoom(room->macAddress);
+            NiFi_JoinRoom(*room);  // Pass full room struct
         }
     }
 
     if (keysDown & KEY_B) {
         g_state.currentState = STATE_MAIN_MENU;
         printf("Back to main menu\n\n");
+    }
+}
+
+// ============================================================================
+// SPECTATOR BROWSER HANDLING
+// ============================================================================
+void HandleSpectatorBrowserInput(int keysDown, touchPosition touch) {
+    if (keysDown & KEY_UP) {
+        if (g_state.selectedRoomIndex > 0) {
+            g_state.selectedRoomIndex--;
+        }
+    }
+    if (keysDown & KEY_DOWN) {
+        if (g_state.selectedRoomIndex < g_state.roomCount - 1) {
+            g_state.selectedRoomIndex++;
+        }
+    }
+
+    if (keysDown & KEY_A) {
+        // Rescan - keep existing rooms and look for new ones
+        printf("Scanning for games...\n");
+        NiFi_ScanRooms();
+    }
+
+    if (keysDown & KEY_X) {
+        // Watch selected game (using NiFi_JoinRoom - it handles spectator mode automatically)
+        if (g_state.roomCount > 0 && g_state.selectedRoomIndex < g_state.roomCount) {
+            NiFiRoom* room = &g_state.discoveredRooms[g_state.selectedRoomIndex];
+            printf("Watching %s...\n", room->roomName);
+            NiFi_JoinRoom(*room);  // Works for both active and spectator modes
+            NiFi_RequestFullGameState();  // Request current game state from host
+            g_state.currentState = STATE_SPECTATING;
+            printf("Spectating active!\n");
+            printf("START: Exit spectator\n\n");
+        }
+    }
+
+    if (keysDown & KEY_B) {
+        // Exit spectator mode and return to main menu
+        NiFi_SetSpectatorMode(false);
+        g_state.currentState = STATE_MAIN_MENU;
+        printf("Spectator mode disabled\n\n");
     }
 }
 
@@ -326,39 +369,30 @@ void HandleGameInput(int keysDown, int keysHeld, touchPosition touch) {
 }
 
 // ============================================================================
-// SPECTATOR HANDLING
+// SPECTATOR HANDLING (Watching a game)
 // ============================================================================
 void HandleSpectatorInput(int keysDown, touchPosition touch) {
-    if (keysDown & KEY_B) {
-        // Discover/cycle rooms
-        int roomCount = NiFi_GetDiscoveredRooms(g_state.discoveredRooms);
-        if (roomCount > 0) {
-            g_state.roomCount = roomCount;
-            g_state.selectedRoomIndex = (g_state.selectedRoomIndex + 1) % roomCount;
-            NiFiRoom* room = &g_state.discoveredRooms[g_state.selectedRoomIndex];
-            printf("[%d/%d] %s (%d/%d)\n",
-                   g_state.selectedRoomIndex + 1, roomCount,
-                   room->roomName, room->memberCount, room->roomSize);
-        } else {
-            printf("No rooms found\n");
-        }
-    }
-
-    if (keysDown & KEY_A) {
-        // Watch selected room
-        if (g_state.roomCount > 0 && g_state.selectedRoomIndex < g_state.roomCount) {
-            NiFiRoom* room = &g_state.discoveredRooms[g_state.selectedRoomIndex];
-            if (NiFi_SpectateRoom(*room)) {
-                printf("Watching: %s\n", room->roomName);
-            }
-        }
-    }
-
     if (keysDown & KEY_START) {
-        // Stop spectating
-        NiFi_StopSpectating();
+        // Exit spectator mode and return to main menu
+        NiFi_SetSpectatorMode(false);
         g_state.currentState = STATE_MAIN_MENU;
-        printf("Stopped spectating\n\n");
+        printf("Spectator mode disabled\n\n");
+    }
+
+    if (keysDown & KEY_B) {
+        // Leave current room and return to spectator browser
+        NiFi_LeaveRoom();  // Returns to scanning mode (MyRoomId = ID_ANY)
+        g_state.currentState = STATE_SPECTATOR_BROWSER;
+        g_state.roomCount = 0;
+        printf("Back to browser\n");
+        printf("Scanning...\n");
+        NiFi_ScanRooms();
+    }
+
+    if (keysDown & KEY_SELECT) {
+        // Request full game state from host
+        printf("Requesting game state...\n");
+        NiFi_RequestFullGameState();
     }
 }
 
@@ -392,6 +426,7 @@ void UpdateConsole(void) {
             "ROOM BROWSER",
             "LOBBY",
             "IN-GAME",
+            "SPECTATOR BROWSER",
             "SPECTATING"
         };
 
@@ -452,6 +487,10 @@ int main(void) {
                 HandleGameInput(pressed, held, touch);
                 break;
 
+            case STATE_SPECTATOR_BROWSER:
+                HandleSpectatorBrowserInput(pressed, touch);
+                break;
+
             case STATE_SPECTATING:
                 HandleSpectatorInput(pressed, touch);
                 break;
@@ -477,6 +516,10 @@ int main(void) {
 
             case STATE_IN_GAME:
                 UI_DrawGame(&g_state);
+                break;
+
+            case STATE_SPECTATOR_BROWSER:
+                UI_DrawSpectatorBrowser(&g_state);
                 break;
 
             case STATE_SPECTATING:

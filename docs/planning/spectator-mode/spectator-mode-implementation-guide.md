@@ -2446,6 +2446,330 @@ cp nifitest.nds /path/to/flashcart/
 
 ---
 
+---
+
+## Phase 7: Full Game State Request (Optional Enhancement)
+
+**Goal:** Allow spectators to request full game state from host for late-join synchronization.
+
+**Estimated Time:** 1.5 hours
+
+**Added in:** v0.5.0
+
+**Purpose:** When spectators join mid-game, they gradually sync state by observing packets. This feature allows them to request immediate full state synchronization from the host.
+
+---
+
+### Step 7.1: Add CMD_FULL_GAME_STATE_REQUEST Command
+
+**File:** `/mnt/c/nds/repo/dswifi/arm9/source/nifi_arm9.h`
+
+**Location:** After line 44 (after `CMD_CLIENT_ACTION`)
+
+**Add:**
+```c
+#define CMD_FULL_GAME_STATE_REQUEST "STATE" // Request full game state from host (spectator mode)
+```
+
+---
+
+### Step 7.2: Add FullGameStateRequestHandler Typedef
+
+**File:** `/mnt/c/nds/repo/dswifi/arm9/source/nifi_arm9.h`
+
+**Location:** After line 113 (after `GamePacketHandler`)
+
+**Add:**
+```c
+typedef void (*FullGameStateRequestHandler)(char macAddress[MAC_ADDRESS_LENGTH]);
+```
+
+---
+
+### Step 7.3: Add Public API Functions
+
+**File:** `/mnt/c/nds/repo/dswifi/arm9/source/nifi_arm9.h`
+
+**Location:** After `NiFi_OnGamePacket()` declaration (~line 146)
+
+**Add:**
+```c
+extern void NiFi_OnFullGameStateRequested(FullGameStateRequestHandler handler);
+```
+
+**Location:** After `NiFi_IsSpectating()` declaration (~line 191)
+
+**Add:**
+```c
+extern void NiFi_RequestFullGameState(void);
+```
+
+---
+
+### Step 7.4: Implement Handler Variable and Registration
+
+**File:** `/mnt/c/nds/repo/dswifi/arm9/source/nifi_arm9.c`
+
+**Location:** After line 56 (after `gamePacketHandler`)
+
+**Add:**
+```c
+FullGameStateRequestHandler fullGameStateRequestHandler = 0;
+```
+
+**Location:** After `NiFi_OnGamePacket()` function (~line 1246)
+
+**Add:**
+```c
+void NiFi_OnFullGameStateRequested(FullGameStateRequestHandler handler) {
+   fullGameStateRequestHandler = handler;
+}
+```
+
+---
+
+### Step 7.5: Implement NiFi_RequestFullGameState()
+
+**File:** `/mnt/c/nds/repo/dswifi/arm9/source/nifi_arm9.c`
+
+**Location:** After `NiFi_IsSpectating()` function (~line 1434)
+
+**Add:**
+```c
+void NiFi_RequestFullGameState(void) {
+   // Only spectators can request game state
+   if (!IsSpectatorMode) {
+      PrintDebug(DBG_Error, "Cannot request game state: not in spectator mode");
+      return;
+   }
+
+   // Must be spectating a room
+   if (spectatorState.targetRoomId == ID_ANY) {
+      PrintDebug(DBG_Error, "Cannot request game state: not spectating a room");
+      return;
+   }
+
+   PrintDebug(DBG_Information, "Requesting full game state from host");
+
+   // Create and send state request packet
+   NiFiPacket p;
+   NiFi_SetPacket(&p, CMD_FULL_GAME_STATE_REQUEST);
+   strcpy(p.data[0], spectatorClient.macAddress);  // Include spectator's MAC
+   NiFi_SendPacket(&p);
+}
+```
+
+---
+
+### Step 7.6: Add Packet Handler in HandlePacketAsHost()
+
+**File:** `/mnt/c/nds/repo/dswifi/arm9/source/nifi_arm9.c`
+
+**Location:** Inside `HandlePacketAsHost()`, before the `OnGamePacket` fallthrough (~line 983)
+
+**Add:**
+```c
+   // When a spectator requests full game state
+   if (strcmp(p->command, CMD_FULL_GAME_STATE_REQUEST) == 0) {
+      PrintDebug(DBG_Information, "Full game state requested by spectator");
+      if (fullGameStateRequestHandler) {
+         (*fullGameStateRequestHandler)(p->data[0]);  // Pass requester's MAC address
+      }
+      return;
+   }
+```
+
+---
+
+### Step 7.7: Implement Game-Side Handler
+
+**File:** `/mnt/c/nds/repo/nifitest/source/network.c`
+
+**Location:** Before `Network_Init()` function
+
+**Add:**
+```c
+void OnFullGameStateRequested(char macAddress[MAC_ADDRESS_LENGTH]) {
+    // Host received a request for full game state from a spectator
+    // Send all relevant game state using custom packets
+
+    printf("Sending full game state to spectator\n");
+
+    // Send player state for all active clients
+    for (int i = 0; i < CLIENT_MAX; i++) {
+        if (clients[i].clientId == ID_EMPTY || clients[i].clientId == ID_ANY) {
+            continue;
+        }
+
+        // Send player color
+        NiFiPacket colorPacket;
+        NiFi_SetPacket(&colorPacket, "COLOR");
+        sprintf(colorPacket.data[0], "%d", clients[i].clientId);
+        sprintf(colorPacket.data[1], "%d", g_state.players[i].drawing.brushColor);
+        NiFi_SendBroadcast(&colorPacket, NULL);
+
+        // Send player cursor position
+        NiFiPacket posPacket;
+        NiFi_SetPacket(&posPacket, "CURSOR");
+        sprintf(posPacket.data[0], "%d", clients[i].clientId);
+        sprintf(posPacket.data[1], "%d", g_state.players[i].drawing.cursorX);
+        sprintf(posPacket.data[2], "%d", g_state.players[i].drawing.cursorY);
+        NiFi_SendBroadcast(&posPacket, NULL);
+    }
+
+    // Note: Canvas state is sent via continuous DRAW packets during gameplay
+    // If you need to send the full canvas, you could add a "CANVAS" packet type
+    // that sends compressed canvas data or key pixels
+}
+```
+
+**Location:** In `Network_Init()`, after `NiFi_OnGamePacket()`
+
+**Add:**
+```c
+    NiFi_OnFullGameStateRequested(OnFullGameStateRequested);
+```
+
+**Location:** In `OnGamePacket()`, after the COLOR packet handler
+
+**Add:**
+```c
+    else if (strcmp(packet.command, "CURSOR") == 0) {
+        // Player cursor position (sent as part of full game state)
+        u8 clientId = atoi(packet.data[0]);
+        s16 x = atoi(packet.data[1]);
+        s16 y = atoi(packet.data[2]);
+        // Find the client with this clientId and update their cursor
+        for (int i = 0; i < CLIENT_MAX; i++) {
+            if (clients[i].clientId == clientId) {
+                g_state.players[i].drawing.cursorX = x;
+                g_state.players[i].drawing.cursorY = y;
+                break;
+            }
+        }
+    }
+```
+
+---
+
+### Step 7.8: Add UI Button for State Request
+
+**File:** `/mnt/c/nds/repo/nifitest/source/main.c`
+
+**Location:** In `HandleSpectatorInput()`, after the KEY_B handler
+
+**Add:**
+```c
+    if (keysDown & KEY_SELECT) {
+        // Request full game state from host
+        printf("Requesting game state...\n");
+        NiFi_RequestFullGameState();
+    }
+```
+
+**File:** `/mnt/c/nds/repo/nifitest/source/ui.c`
+
+**Location:** In `UI_DrawSpectator()`, update the button instructions line
+
+**Change:**
+```c
+PrintAt(2, 22, "B:Cycle START:Exit");
+```
+
+**To:**
+```c
+PrintAt(2, 22, "SEL:Sync B:Back START:Exit");
+```
+
+---
+
+### Step 7.9: Testing Full Game State Request
+
+**Test:** Late-join spectator synchronization
+
+**Prerequisites:** Active game with 2+ players, visible game state (player positions, colors)
+
+**Steps:**
+1. Start game with 2+ players
+2. Have players move to different positions and change colors
+3. Start spectator and select room
+4. Observe initial state (may be incomplete/default)
+5. Press SELECT to request full game state
+6. Verify spectator receives:
+   - All player colors updated
+   - All player cursor positions updated
+   - Any custom state in your game
+
+**Expected Behavior:**
+- Host receives state request
+- Host sends complete game state via broadcast packets
+- Spectator receives and applies all state updates
+- Spectator UI matches active players' state
+- Debug output shows "Sending full game state to spectator"
+
+**Pass Criteria:**
+✅ Spectator state syncs within 1 second of pressing SELECT
+✅ All player colors and positions accurate
+✅ No errors or crashes
+
+---
+
+### Step 7.10: Customizing State Synchronization
+
+The `OnFullGameStateRequested` callback is game-specific. Customize it for your game:
+
+**Example: Sending Canvas State**
+```c
+// Add to OnFullGameStateRequested()
+// Send canvas data in chunks (canvas too large for one packet)
+for (int y = 0; y < CANVAS_HEIGHT; y += 10) {
+    NiFiPacket canvasPacket;
+    NiFi_SetPacket(&canvasPacket, "CANVAS");
+    sprintf(canvasPacket.data[0], "%d", y);  // Row offset
+
+    // Encode 10 rows of pixels (compressed)
+    // ... encoding logic ...
+
+    NiFi_SendBroadcast(&canvasPacket, NULL);
+}
+```
+
+**Example: Sending Game Scores**
+```c
+// Send current scores
+for (int i = 0; i < CLIENT_MAX; i++) {
+    if (clients[i].clientId != ID_EMPTY) {
+        NiFiPacket scorePacket;
+        NiFi_SetPacket(&scorePacket, "SCORE");
+        sprintf(scorePacket.data[0], "%d", clients[i].clientId);
+        sprintf(scorePacket.data[1], "%d", playerScores[i]);
+        NiFi_SendBroadcast(&scorePacket, NULL);
+    }
+}
+```
+
+---
+
+### Phase 7 Completion Checklist
+
+- [ ] CMD_FULL_GAME_STATE_REQUEST added to commands
+- [ ] FullGameStateRequestHandler typedef added
+- [ ] API functions declared and implemented
+- [ ] Handler registered in Network_Init()
+- [ ] OnFullGameStateRequested callback implemented
+- [ ] CURSOR packet handler added to OnGamePacket()
+- [ ] SELECT button triggers NiFi_RequestFullGameState()
+- [ ] UI shows "SEL:Sync" instruction
+- [ ] Test confirms state synchronization works
+
+**Key Design Points:**
+- **Request is library-level**: Clean API, spectator-only restriction
+- **Response is game-level**: Flexible, developer-defined format
+- **Builds on existing infrastructure**: Uses OnGamePacket for responses
+- **Broadcast-based**: All spectators receive state (no targeting needed)
+
+---
+
 **END OF IMPLEMENTATION GUIDE**
 
-This guide provides complete step-by-step instructions for implementing spectator mode. Follow phases sequentially and use testing checkpoints to verify correctness at each stage.
+This guide provides complete step-by-step instructions for implementing spectator mode with full game state synchronization. Follow phases sequentially and use testing checkpoints to verify correctness at each stage.
